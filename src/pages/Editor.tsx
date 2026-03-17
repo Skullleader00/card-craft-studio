@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import CardCanvas, { drawCard, CANVAS_W, CANVAS_H } from "@/components/CardCanvas";
-import { defaultCardData, type CardData } from "@/lib/templates";
+import { defaultCardData, getTemplateConfig, type CardData, type CardTemplate } from "@/lib/templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +12,7 @@ import { ArrowLeft, Download, Upload } from "lucide-react";
 export default function Editor() {
   const navigate = useNavigate();
   const location = useLocation();
-  const templateImage = (location.state as { templateImage?: string })?.templateImage;
+  const template = (location.state as { template?: CardTemplate })?.template;
 
   const [cardData, setCardData] = useState<CardData>({ ...defaultCardData });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,38 +36,46 @@ export default function Editor() {
   };
 
   const handleExport = () => {
+    if (!template) return;
+    const config = getTemplateConfig(template);
     const canvas = document.createElement("canvas");
     canvas.width = CANVAS_W;
     canvas.height = CANVAS_H;
     const ctx = canvas.getContext("2d")!;
 
-    const templateImg = new Image();
-    templateImg.crossOrigin = "anonymous";
-    templateImg.onload = () => {
-      if (cardData.artworkUrl) {
-        const artImg = new Image();
-        artImg.crossOrigin = "anonymous";
-        artImg.onload = () => {
-          drawCard(ctx, templateImg, artImg, cardData);
-          downloadCanvas(canvas);
-        };
-        artImg.src = cardData.artworkUrl;
-      } else {
-        drawCard(ctx, templateImg, null, cardData);
-        downloadCanvas(canvas);
-      }
+    const loadImage = (src: string): Promise<HTMLImageElement> =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.src = src;
+      });
+
+    const doExport = async () => {
+      const templateImg = await loadImage(template.frameImage);
+      const artImg = cardData.artworkUrl ? await loadImage(cardData.artworkUrl) : null;
+      const overlayImgs = template.overlays
+        ? await Promise.all(template.overlays.map((o) => loadImage(o.image)))
+        : [];
+      const levelIconImg = config.levelIcons ? await loadImage(config.levelIcons.image) : null;
+
+      drawCard(
+        ctx, templateImg, artImg, cardData, config,
+        overlayImgs,
+        template.overlays?.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h })),
+        levelIconImg,
+      );
+
+      const link = document.createElement("a");
+      link.download = `${cardData.name || "card"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
     };
-    templateImg.src = templateImage!;
+
+    doExport();
   };
 
-  const downloadCanvas = (canvas: HTMLCanvasElement) => {
-    const link = document.createElement("a");
-    link.download = `${cardData.name || "card"}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  };
-
-  if (!templateImage) {
+  if (!template) {
     navigate("/");
     return null;
   }
@@ -83,7 +91,6 @@ export default function Editor() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left: Preview */}
           <div className="flex flex-col items-center gap-4">
             <Tabs defaultValue="preview" className="w-full">
               <TabsList className="w-full">
@@ -92,7 +99,7 @@ export default function Editor() {
               </TabsList>
               <TabsContent value="preview" className="flex justify-center pt-4">
                 <CardCanvas
-                  templateImage={templateImage}
+                  template={template}
                   cardData={cardData}
                   onArtworkOffsetChange={(offset) => update({ artworkOffset: offset })}
                   onArtworkScaleChange={(scale) => update({ artworkScale: scale })}
@@ -100,7 +107,7 @@ export default function Editor() {
               </TabsContent>
               <TabsContent value="template" className="flex justify-center pt-4">
                 <img
-                  src={templateImage}
+                  src={template.image}
                   alt="Template"
                   className="w-full max-w-[400px] rounded-lg shadow-2xl"
                 />
@@ -111,92 +118,44 @@ export default function Editor() {
             </p>
           </div>
 
-          {/* Right: Form */}
           <div className="space-y-5">
             <div className="bg-card rounded-xl p-6 border border-border space-y-4">
               <h2 className="text-lg font-semibold text-foreground mb-2">Card Details</h2>
-
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={cardData.name}
-                  onChange={(e) => update({ name: e.target.value })}
-                  placeholder="Card Name"
-                />
+                <Input id="name" value={cardData.name} onChange={(e) => update({ name: e.target.value })} placeholder="Card Name" />
               </div>
-
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="cost">Cost</Label>
-                  <Input
-                    id="cost"
-                    value={cardData.cost}
-                    onChange={(e) => update({ cost: e.target.value })}
-                    placeholder="0"
-                  />
+                  <Input id="cost" value={cardData.cost} onChange={(e) => update({ cost: e.target.value })} placeholder="0" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="atk">ATK</Label>
-                  <Input
-                    id="atk"
-                    value={cardData.atk}
-                    onChange={(e) => update({ atk: e.target.value })}
-                    placeholder="0"
-                  />
+                  <Input id="atk" value={cardData.atk} onChange={(e) => update({ atk: e.target.value })} placeholder="0" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="level">Level</Label>
-                  <Input
-                    id="level"
-                    value={cardData.level}
-                    onChange={(e) => update({ level: e.target.value })}
-                    placeholder="1"
-                  />
+                  <Input id="level" value={cardData.level} onChange={(e) => update({ level: e.target.value })} placeholder="1" />
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="text">Card Text</Label>
-                <Textarea
-                  id="text"
-                  value={cardData.text}
-                  onChange={(e) => update({ text: e.target.value })}
-                  placeholder="Describe the card's abilities..."
-                  rows={3}
-                />
+                <Textarea id="text" value={cardData.text} onChange={(e) => update({ text: e.target.value })} placeholder="Describe the card's abilities..." rows={3} />
               </div>
             </div>
 
             <div className="bg-card rounded-xl p-6 border border-border space-y-4">
               <h2 className="text-lg font-semibold text-foreground">Artwork</h2>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleImageUpload}
-              />
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+              <Button variant="secondary" className="w-full" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="mr-2 h-4 w-4" />
                 {cardData.artworkUrl ? "Replace Artwork" : "Upload Artwork"}
               </Button>
               {cardData.artworkUrl && (
                 <div className="space-y-2">
                   <Label>Scale: {cardData.artworkScale.toFixed(2)}</Label>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="3"
-                    step="0.01"
-                    value={cardData.artworkScale}
-                    onChange={(e) => update({ artworkScale: parseFloat(e.target.value) })}
-                    className="w-full accent-primary"
-                  />
+                  <input type="range" min="0.1" max="3" step="0.01" value={cardData.artworkScale} onChange={(e) => update({ artworkScale: parseFloat(e.target.value) })} className="w-full accent-primary" />
                 </div>
               )}
             </div>
