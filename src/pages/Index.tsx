@@ -9,7 +9,7 @@ export default function Index() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleTemplateClick = (template: CardTemplate) => {
-    navigate("/editor", { state: { templateImage: template.image } });
+    navigate("/editor", { state: { template } });
   };
 
   const handleAddTemplate = (e: React.ChangeEvent<HTMLInputElement>) => {
