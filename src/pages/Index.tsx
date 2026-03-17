@@ -17,10 +17,12 @@ export default function Index() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
+      const dataUrl = reader.result as string;
       const newTemplate: CardTemplate = {
         id: `custom-${Date.now()}`,
         name: file.name.replace(/\.[^/.]+$/, ""),
-        image: reader.result as string,
+        image: dataUrl,
+        frameImage: dataUrl,
       };
       setTemplates((prev) => [...prev, newTemplate]);
     };
